@@ -1,0 +1,54 @@
+name: Build APK
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: Unzip the app
+        run: |
+          mkdir tmp www
+          z=$(ls *.zip | head -n 1)
+          unzip -q -o "$z" -d tmp
+          d=$(find tmp -name index.html -printf '%h\n' | head -n 1)
+          cp -r "$d"/. www/
+          mkdir -p ~/.android
+          ks=$(find tmp -name debug.keystore | head -n 1)
+          if [ -n "$ks" ]; then cp "$ks" ~/.android/debug.keystore; fi
+      - name: Create Android project
+        run: |
+          npm init -y
+          npm i @capacitor/core@6 @capacitor/cli@6 @capacitor/android@6
+          npx cap init "Badminton Training Pro" com.badminton.trainingpro --web-dir www
+          npx cap add android
+          npx cap sync android
+      - name: Build APK
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+      - name: Save APK in repository
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk badminton-training-pro.apk
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add badminton-training-pro.apk
+          git commit -m "Add built APK" || true
+          git push
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "apk-${{ github.run_number }}" badminton-training-pro.apk --repo ${{ github.repository }} --title "APK build ${{ github.run_number }}" --notes "Install badminton-training-pro.apk on your Android phone."
